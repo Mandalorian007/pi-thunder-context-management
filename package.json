@@ -1,6 +1,6 @@
 {
   "name": "pi-thunder-context-management",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Context management for long-running Pi agents: deep pruning at task boundaries and on a cold cache, with agent compaction as the backstop. One extension, coordinators and subagents alike.",
   "type": "module",
   "exports": {

@@ -155,6 +155,21 @@ test("after the cache has gone cold, the next call prunes whatever it can", asyn
   }
 });
 
+test("a restarted session is not asked to compact again", async () => {
+  // Every call is on a cold cache, so the restarted session's first call would
+  // nudge again if the first nudge were forgotten.
+  const s = await session({ tasks: 6, padding: 6_000, obeyFrom: "never" }, { compactFloor: 200, coldAfterMs: 1, headChars: 1e6 });
+  try {
+    await s.pi([BRIEF]);
+    const firm = () => s.events().filter((e) => e.event === "nudge" && e.level === "firm").length;
+    assert.equal(firm(), 1);
+    await s.pi(["--continue", "Anything left?"]);
+    assert.equal(firm(), 1, JSON.stringify(s.events()));
+  } finally {
+    s.close();
+  }
+});
+
 test("a restarted session (--continue) sends the same view it sent before", async () => {
   const s = await session({ tasks: 4, padding: 6_000, obeyFrom: "never" }, {});
   try {

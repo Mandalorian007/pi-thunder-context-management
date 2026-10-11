@@ -81,11 +81,17 @@ const ENTRY = "context-manager";
 type Entry =
   | { kind: "prefix"; tokens: number }
   | { kind: "prune"; reason: string; results: string[]; calls: string[] }
-  | ({ kind: "compact" } & Compaction);
+  | ({ kind: "compact" } & Compaction)
+  // A nudge is remembered, so a restarted session is not asked twice and keeps
+  // counting its grace turns. "clear" is the cap's warning lifted.
+  | { kind: "nudge"; level: "firm" | "immediate" | "clear"; turn: number };
 
 const COMMIT = /\bgit\b[^|;&]*\bcommit\b/;
 
-const GUIDE = [
+// What the agent is told about compaction. Pi adds a tool's guidelines only to
+// its own default system prompt, so a host that writes its own system prompt
+// (an SDK session) should append these itself.
+export const COMPACT_GUIDE = [
   "Use compact when you finish a standalone piece of work and what comes next does not need the detail of what you read or ran. Your context becomes the brief, your summary, and what follows; files and command output can always be re-read.",
   "In a compact summary keep: the state of the work (branch, commits, what passes and fails), decisions and why, file paths with line ranges worth re-reading, open threads, and the next steps. Leave out file contents and command output.",
   "The harness also trims old tool output by itself. An output marked as pruned by the harness can be had again by running the call again.",
@@ -140,11 +146,18 @@ export function createContextManager(options: { rules?: Partial<ContextRules>; l
         nudged = {};
         stats.compactions += 1;
       }
+      if (e.kind === "nudge") {
+        if (e.level === "firm") nudged.firm = true;
+        if (e.level === "immediate") nudged.immediateAt = e.turn;
+        if (e.level === "clear") nudged.immediateAt = undefined;
+      }
     };
 
     pi.on("session_start", async (_event, ctx) => {
-      for (const e of ctx.sessionManager.getBranch() as { type: string; customType?: string; data?: Entry }[]) {
+      for (const e of ctx.sessionManager.getBranch() as { type: string; customType?: string; data?: Entry; message?: { role?: string } }[]) {
         if (e.type === "custom" && e.customType === ENTRY && e.data) apply(e.data);
+        // Turns are counted from the session, so grace runs on across a restart.
+        if (e.type === "message" && e.message?.role === "assistant") turn += 1;
       }
     });
 
@@ -154,7 +167,7 @@ export function createContextManager(options: { rules?: Partial<ContextRules>; l
       description:
         "Replace your context with a summary you write, to keep context small and cheap. From your next step your context is the original brief, your summary, and this call onward.",
       promptSnippet: "Compact your own context with a summary you write",
-      promptGuidelines: GUIDE,
+      promptGuidelines: COMPACT_GUIDE,
       parameters: Type.Object({
         summary: Type.String({ description: "What the next work needs, in your words." }),
       }),
@@ -259,7 +272,9 @@ export function createContextManager(options: { rules?: Partial<ContextRules>; l
       let nudge: string | undefined;
       if (left > rules.hardCap) {
         if (nudged.immediateAt === undefined) {
-          nudged.immediateAt = turn;
+          const e: Entry = { kind: "nudge", level: "immediate", turn };
+          apply(e);
+          save(e);
           nudge = nudgeText.immediate(k, rules.graceTurns);
           log({ event: "nudge", level: "immediate", tokens: Math.round(left), turn });
         } else if (turn - nudged.immediateAt >= rules.graceTurns) {
@@ -276,12 +291,16 @@ export function createContextManager(options: { rules?: Partial<ContextRules>; l
             log({ event: "compacted", by: "harness", turn });
           }
         }
-      } else {
+      } else if (nudged.immediateAt !== undefined) {
         // Back under the cap (a cap prune did it): a later breach is warned afresh.
-        nudged.immediateAt = undefined;
+        const e: Entry = { kind: "nudge", level: "clear", turn };
+        apply(e);
+        save(e);
       }
       if (left <= rules.hardCap && (reason === "boundary" || reason === "cold") && left > prefix + rules.compactFloor && !nudged.firm) {
-        nudged.firm = true;
+        const e: Entry = { kind: "nudge", level: "firm", turn };
+        apply(e);
+        save(e);
         nudge = nudgeText.firm(k);
         log({ event: "nudge", level: "firm", tokens: Math.round(left), turn });
       }

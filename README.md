@@ -43,6 +43,14 @@ const loader = new DefaultResourceLoader({
 
 Leave Pi's own auto-compaction at its default (window − 16K). With a 1M window it never fires before these rules do, and it stays as the last resort.
 
+Pi adds a tool's guidelines only to its own default system prompt. A host that writes its own system prompt (`systemPromptOverride`) should append `COMPACT_GUIDE`, which tells the agent when to compact and how, or the agent sees only the `compact` tool's description:
+
+```ts
+import { COMPACT_GUIDE, createContextManager } from "pi-thunder-context-management";
+
+appendSystemPromptOverride: () => [COMPACT_GUIDE.map((line) => `- ${line}`).join("\n")],
+```
+
 ## The rules
 
 | | When | What |
@@ -113,7 +121,7 @@ Nothing edits the session. The extension uses Pi's `context` hook to build what 
 - Pruning swaps in stubs.
 - A compaction replaces everything between the brief and the compact call with the summary.
 
-Each decision is saved in the session as a custom entry and replayed on `session_start`. So the extension:
+Each decision is saved in the session as a custom entry and replayed on `session_start`, and so is each nudge, so a restarted session is not asked to compact twice and its grace turns count on. So the extension:
 - needs no runner;
 - works mid-turn and in every Pi mode (interactive, print, JSON, RPC, SDK);
 - sends exactly the same view after a restart.
