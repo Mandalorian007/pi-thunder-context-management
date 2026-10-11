@@ -16,13 +16,17 @@ In live runs, against Pi with nothing added (Sonnet 5.5, a 10-task chain on a re
 
 ## Install
 
+From GitHub. The package is not on npm yet; see [TODO.md](TODO.md).
+
 ```sh
 pi install git:github.com/Mandalorian007/pi-thunder-context-management         # every pi process for this user
 pi install git:github.com/Mandalorian007/pi-thunder-context-management -l      # this project only (.pi/settings.json)
 pi -e git:github.com/Mandalorian007/pi-thunder-context-management              # try it for one run
 ```
 
-Pin a version with `@v0.1.0`. A user install is loaded by every `pi` process, so subagents spawned as `pi` subprocesses get it too.
+Pin a version with `@v0.1.0`; without one, `pi update --extensions` follows `main`. Pi clones the repo to `~/.pi/agent/git/github.com/Mandalorian007/pi-thunder-context-management` (or `.pi/git/…` for a project install) and runs `npm install` there. `pi list` shows it, `pi config` turns it on and off, and `pi remove git:github.com/Mandalorian007/pi-thunder-context-management` uninstalls it.
+
+To move a pinned install to a newer release, install the new tag: `pi install git:github.com/Mandalorian007/pi-thunder-context-management@v0.2.0`. A user install is loaded by every `pi` process, so subagents spawned as `pi` subprocesses get it too.
 
 A project install (`-l`) is the simplest way to cover containers and CI. Pi installs a package listed in `.pi/settings.json` on startup once the project is trusted.
 
@@ -152,6 +156,15 @@ npm run typecheck
 ```
 
 Pi loads `.ts` directly, so there is no build step. `@earendil-works/pi-coding-agent` and `typebox` are peer dependencies; Pi provides both to extensions at runtime.
+
+To try local changes in a real session: `pi -e ./index.ts`. Or install the checkout itself with `pi install ~/repos/pi-thunder-context-management`; a local path is used in place, so edits apply on the next run.
+
+To release:
+1. Bump `version` in `package.json` and commit.
+2. Tag and push: `git tag -a vX.Y.Z -m vX.Y.Z && git push origin vX.Y.Z`.
+3. Create the release: `gh release create vX.Y.Z --generate-notes`.
+
+Planned work is in [TODO.md](TODO.md).
 
 ## License
 
