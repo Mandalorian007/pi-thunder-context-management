@@ -84,7 +84,11 @@ type Entry =
   | ({ kind: "compact" } & Compaction)
   // A nudge is remembered, so a restarted session is not asked twice and keeps
   // counting its grace turns. "clear" is the cap's warning lifted.
-  | { kind: "nudge"; level: "firm" | "immediate" | "clear"; turn: number };
+  | { kind: "nudge"; level: "firm" | "immediate" | "clear"; turn: number }
+  // A prune decided at a turn's end and made at the next call. Kept, so a
+  // host that stops after a tool turn and restarts (an SDK host working in
+  // slices) still makes it; no reason is the decision made.
+  | { kind: "due"; reason?: "boundary" | "cap"; boundary?: string };
 
 const COMMIT = /\bgit\b[^|;&]*\bcommit\b/;
 
@@ -146,11 +150,22 @@ export function createContextManager(options: { rules?: Partial<ContextRules>; l
         nudged = {};
         stats.compactions += 1;
       }
+      if (e.kind === "due") {
+        due = e.reason;
+        dueBoundary = e.boundary;
+      }
       if (e.kind === "nudge") {
         if (e.level === "firm") nudged.firm = true;
         if (e.level === "immediate") nudged.immediateAt = e.turn;
         if (e.level === "clear") nudged.immediateAt = undefined;
       }
+    };
+
+    // A pending prune changes nothing yet, so recording it leaves the state's
+    // version alone.
+    const remember = (e: Entry) => {
+      apply(e);
+      pi.appendEntry(ENTRY, e);
     };
 
     pi.on("session_start", async (_event, ctx) => {
@@ -159,6 +174,9 @@ export function createContextManager(options: { rules?: Partial<ContextRules>; l
         // Turns are counted from the session, so grace runs on across a restart.
         if (e.type === "message" && e.message?.role === "assistant") turn += 1;
       }
+      // The last call's real size, so the first estimate after a restart is
+      // scaled like the rest.
+      lastReal = ctx.getContextUsage()?.tokens ?? 0;
     });
 
     pi.registerTool({
@@ -223,10 +241,8 @@ export function createContextManager(options: { rules?: Partial<ContextRules>; l
         save(e);
         sentVersion = version;
       }
-      if (boundary && tokens > rules.pruneAt) {
-        due = "boundary";
-        dueBoundary = boundary;
-      } else if (tokens > rules.hardCap) due = "cap";
+      if (boundary && tokens > rules.pruneAt) remember({ kind: "due", reason: "boundary", boundary });
+      else if (tokens > rules.hardCap) remember({ kind: "due", reason: "cap" });
     });
 
     pi.on("context", async (event) => {
@@ -241,8 +257,7 @@ export function createContextManager(options: { rules?: Partial<ContextRules>; l
       const cold = lastCall > 0 && Date.now() - lastCall > rules.coldAfterMs;
       const reason = due ?? (cold ? "cold" : undefined);
       const boundary = due === "boundary" ? dueBoundary : undefined;
-      due = undefined;
-      dueBoundary = undefined;
+      if (due) remember({ kind: "due" });
 
       if (reason) {
         // Cut within what is shown, so a compaction's dropped turns are not counted.
