@@ -23,7 +23,9 @@ type Turn = { toolResults: unknown[] };
 type FinishTurn = (turn: Turn, signal?: AbortSignal) => Promise<{ action: "end" | "continue" } | undefined | void>;
 type Restorable = { inMemory: (cwd: string, options: undefined, entries?: unknown[]) => unknown };
 
-const RULES: Partial<ContextRules> = { pruneAt: 3_000, hardCap: OFF, compactFloor: OFF, keepRecentTokens: 500, minPruneTokens: 2_000, headChars: 50, coldAfterMs: 60 * 60_000 };
+// One task's output (about 1.5K tokens) clears minPruneTokens, so whether the
+// first call after the restart prunes does not hang on a few tokens.
+const RULES: Partial<ContextRules> = { pruneAt: 3_000, hardCap: OFF, compactFloor: OFF, keepRecentTokens: 500, minPruneTokens: 1_000, headChars: 50, coldAfterMs: 60 * 60_000 };
 
 test("a host that stops right after a commit still prunes when it carries on", { skip }, async () => {
   process.env.PI_OFFLINE = "1";
